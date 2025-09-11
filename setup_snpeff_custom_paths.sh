@@ -9,7 +9,7 @@
 
 set -e
 
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.1.0"
 
 echo "========================================="
 echo "snpEff Setup Script with Custom Paths"
@@ -20,18 +20,23 @@ echo ""
 # Check if software path provided
 if [ -z "$1" ]; then
     echo "Usage: $0 <software_directory_path> [--check-only]"
+    echo "   or: SCRATCH_DIR=<scratch_path> $0 <software_directory_path> [--check-only]"
     echo ""
-    echo "Example: $0 /ref/sahlab/software"
+    echo "Examples:"
+    echo "  $0 /ref/sahlab/software"
+    echo "  SCRATCH_DIR=/scratch/sahlab/kathie $0 /ref/sahlab/software"
     echo ""
     echo "This script will install/check:"
     echo "  - Java 21: <software_dir>/jdk-21.0.5+11"
     echo "  - snpEff: <software_dir>/snpEff" 
-    echo "  - Python packages: pandas (user install)"
+    echo "  - Python packages: pandas (scratch space install)"
     echo "  - System tools: curl/wget"
     echo "  - Pipeline configs: <software_dir>/snpeff_configs"
     echo ""
     echo "Options:"
-    echo "  --check-only  Only check dependencies, don't install"
+    echo "  --check-only     Only check dependencies, don't install"
+    echo "  SCRATCH_DIR=<path>  Specify scratch directory for Python packages"
+    echo "                     (will prompt if not specified)"
     exit 1
 fi
 
@@ -187,25 +192,74 @@ check_install_python_deps() {
     echo ""
     echo "=== Python Dependencies ==="
     
-    # Check pandas
+    # Setup PIP cache and install location in scratch space to avoid home directory quota issues
+    if [ -n "$SCRATCH_DIR" ]; then
+        # Use user-provided scratch directory
+        export PIP_CACHE_DIR="$SCRATCH_DIR/.cache/pip"
+        export PIP_USER_DIR="$SCRATCH_DIR/.local"
+    elif [ -n "$USER" ]; then
+        # Fallback: ask user for scratch directory
+        echo ""
+        echo "⚠ Scratch directory not specified. Please provide your scratch space path."
+        echo "Common examples:"
+        echo "  - /scratch/\$USER"
+        echo "  - /scratch/sahlab/\$USER"
+        echo "  - /tmp/\$USER"
+        read -p "Enter your scratch directory path: " SCRATCH_INPUT
+        
+        if [ -n "$SCRATCH_INPUT" ]; then
+            export PIP_CACHE_DIR="$SCRATCH_INPUT/.cache/pip"
+            export PIP_USER_DIR="$SCRATCH_INPUT/.local"
+        else
+            echo "⚠ No scratch directory provided, using home directory (may hit quota limits)"
+            export PIP_USER_DIR="$HOME/.local"
+            export PIP_CACHE_DIR="$HOME/.cache/pip"
+        fi
+    else
+        echo "⚠ Warning: \$USER not set, using default PIP locations"
+        export PIP_USER_DIR="$HOME/.local"
+        export PIP_CACHE_DIR="$HOME/.cache/pip"
+    fi
+    
+    export PYTHONUSERBASE="$PIP_USER_DIR"
+    export PATH="$PIP_USER_DIR/bin:$PATH"
+    
+    echo "Setting PIP cache directory: $PIP_CACHE_DIR"
+    echo "Setting PIP install directory: $PIP_USER_DIR"
+    
+    if [ "$CHECK_ONLY" != "--check-only" ]; then
+        mkdir -p "$PIP_CACHE_DIR" "$PIP_USER_DIR" 2>/dev/null || {
+            echo "⚠ Warning: Could not create PIP directories in scratch space"
+            echo "  This may cause slower installs but won't prevent installation"
+        }
+    fi
+    
+    # Check pandas (check both standard location and scratch space)
+    PANDAS_FOUND=false
     if python3 -c "import pandas" >/dev/null 2>&1; then
         PANDAS_VERSION=$(python3 -c "import pandas; print(pandas.__version__)")
+        PANDAS_LOCATION=$(python3 -c "import pandas; print(pandas.__file__)")
         echo "✓ pandas available: $PANDAS_VERSION"
+        echo "  Location: $PANDAS_LOCATION"
         add_to_summary "✓ pandas: $PANDAS_VERSION"
-    else
+        PANDAS_FOUND=true
+    fi
+    
+    if [ "$PANDAS_FOUND" = false ]; then
         echo "✗ pandas not available"
         add_to_summary "✗ pandas: NOT INSTALLED"
         
         if [ "$CHECK_ONLY" != "--check-only" ]; then
-            echo "Installing pandas..."
+            echo "Installing pandas to scratch space..."
+            echo "Target directory: $PIP_USER_DIR"
             
             # Try different installation methods
             if command -v pip3 >/dev/null 2>&1; then
-                echo "Using pip3..."
-                pip3 install --user pandas
+                echo "Using pip3 with scratch space installation..."
+                env PYTHONUSERBASE="$PIP_USER_DIR" PIP_CACHE_DIR="$PIP_CACHE_DIR" pip3 install --user pandas
             elif command -v pip >/dev/null 2>&1; then
-                echo "Using pip..."
-                pip install --user pandas  
+                echo "Using pip with scratch space installation..."
+                env PYTHONUSERBASE="$PIP_USER_DIR" PIP_CACHE_DIR="$PIP_CACHE_DIR" pip install --user pandas  
             elif command -v conda >/dev/null 2>&1; then
                 echo "Using conda..."
                 conda install pandas -y
@@ -219,8 +273,13 @@ check_install_python_deps() {
             # Verify installation
             if python3 -c "import pandas" >/dev/null 2>&1; then
                 PANDAS_VERSION=$(python3 -c "import pandas; print(pandas.__version__)")
-                echo "✓ pandas installed: $PANDAS_VERSION"
-                add_to_summary "✓ pandas: INSTALLED ($PANDAS_VERSION)"
+                PANDAS_LOCATION=$(python3 -c "import pandas; print(pandas.__file__)")
+                echo "✓ pandas successfully installed: $PANDAS_VERSION"
+                echo "  Installed to: $PANDAS_LOCATION"
+                # Update summary to replace the NOT INSTALLED entry
+                INSTALL_SUMMARY=$(echo -e "$INSTALL_SUMMARY" | sed 's/✗ pandas: NOT INSTALLED/✓ pandas: INSTALLED ('"$PANDAS_VERSION"')/')
+            else
+                echo "✗ pandas installation failed"
             fi
         fi
     fi
@@ -272,7 +331,15 @@ create_update_config() {
 export SNPEFF_PIPELINE_VERSION="$SCRIPT_VERSION"
 export JAVA_HOME="$JAVA_DIR"
 export SNPEFF_HOME="$SNPEFF_DIR"
-export PATH="\$JAVA_HOME/bin:\$PATH"
+
+# Python package management in scratch space
+# Note: Set SCRATCH_DIR environment variable or script will prompt for scratch path
+export PIP_CACHE_DIR="\${SCRATCH_DIR:-/scratch/\$USER}/.cache/pip"
+export PIP_USER_DIR="\${SCRATCH_DIR:-/scratch/\$USER}/.local"
+export PYTHONUSERBASE="\$PIP_USER_DIR"
+
+# Update PATH to include both Java and Python packages
+export PATH="\$JAVA_HOME/bin:\$PIP_USER_DIR/bin:\$PATH"
 
 # Core functions
 snpeff() {
@@ -310,6 +377,7 @@ snpeff_pipeline_version() {
     echo "snpEff Pipeline Version: \$SNPEFF_PIPELINE_VERSION"
     echo "Java: \$JAVA_HOME"
     echo "snpEff: \$SNPEFF_HOME"
+    echo "Python packages: \$PYTHONUSERBASE"
 }
 
 # Display configuration when sourced
@@ -317,6 +385,7 @@ if [ -n "\$PS1" ]; then
     echo "snpEff Pipeline loaded! (v\$SNPEFF_PIPELINE_VERSION)"
     echo "  Java: \$JAVA_HOME"
     echo "  snpEff: \$SNPEFF_HOME"
+    echo "  Python: \$PYTHONUSERBASE"
     echo ""
     echo "Functions: snpeff, snpsift, download_ncbi_genome, snpeff_pipeline_version"
 fi
@@ -344,10 +413,13 @@ display_summary() {
         echo "To use the pipeline:"
         echo "  source $SOFTWARE_DIR/snpeff_configs/snpeff_current.sh"
         echo ""
+        echo "Note: Python packages are installed in scratch space (/scratch/\$USER/.local/)"
+        echo "This avoids home directory quota issues on HPC systems."
+        echo ""
         echo "Version this installation in Git:"
         echo "  git add setup_snpeff_custom_paths.sh"
         echo "  git commit -m 'Update snpEff setup v$SCRIPT_VERSION'"
-        echo "  git tag -a v$SCRIPT_VERSION -m 'Pipeline dependencies added'"
+        echo "  git tag -a v$SCRIPT_VERSION -m 'Scratch space support for Python packages'"
         echo "  git push origin main --tags"
     fi
 }
