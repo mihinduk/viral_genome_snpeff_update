@@ -9,7 +9,7 @@
 
 set -e
 
-SCRIPT_VERSION="2.1.0"
+SCRIPT_VERSION="2.2.0"
 
 echo "========================================="
 echo "snpEff Setup Script with Custom Paths"
@@ -29,7 +29,8 @@ if [ -z "$1" ]; then
     echo "This script will install/check:"
     echo "  - Java 21: <software_dir>/jdk-21.0.5+11"
     echo "  - snpEff: <software_dir>/snpEff" 
-    echo "  - Python packages: pandas (scratch space install)"
+    echo "  - Python packages: pandas, biopython (scratch space install)"
+    echo "  - VADR: viral annotation via bioconda"
     echo "  - System tools: curl/wget"
     echo "  - Pipeline configs: <software_dir>/snpeff_configs"
     echo ""
@@ -286,16 +287,100 @@ check_install_python_deps() {
     
     # Check other useful packages
     echo ""
-    echo "Optional Python packages:"
+    echo "Additional Python packages:"
     
     for pkg in biopython requests numpy; do
         if python3 -c "import $pkg" >/dev/null 2>&1; then
             VERSION=$(python3 -c "import $pkg; print($pkg.__version__)" 2>/dev/null || echo "unknown")
             echo "  ✓ $pkg: $VERSION"
         else
-            echo "  ○ $pkg: not installed (optional)"
+            echo "  ○ $pkg: not installed (recommended for viral genomics)"
+            if [ "$CHECK_ONLY" != "--check-only" ] && [ "$pkg" = "biopython" ]; then
+                echo "    Installing biopython..."
+                if command -v pip3 >/dev/null 2>&1; then
+                    env PYTHONUSERBASE="$PIP_USER_DIR" PIP_CACHE_DIR="$PIP_CACHE_DIR" pip3 install --user biopython
+                elif command -v conda >/dev/null 2>&1; then
+                    conda install biopython -y
+                fi
+            fi
         fi
     done
+}
+
+# Function to check/install VADR
+check_install_vadr() {
+    echo ""
+    echo "=== VADR (Viral Annotation and Discovery Repository) ==="
+    
+    # Check if VADR is available
+    if command -v v-annotate.pl >/dev/null 2>&1; then
+        VADR_VERSION=$(v-annotate.pl -h 2>&1 | grep -o 'VADR [0-9.]*' | head -n1 || echo "unknown")
+        VADR_PATH=$(which v-annotate.pl)
+        echo "✓ VADR available: $VADR_VERSION"
+        echo "  Location: $VADR_PATH"
+        add_to_summary "✓ VADR: $VADR_VERSION"
+    else
+        echo "✗ VADR not found"
+        add_to_summary "✗ VADR: NOT INSTALLED"
+        
+        if [ "$CHECK_ONLY" != "--check-only" ]; then
+            echo "Installing VADR via conda (bioconda channel)..."
+            
+            if command -v conda >/dev/null 2>&1; then
+                echo "Adding bioconda channel..."
+                conda config --add channels bioconda
+                conda config --add channels conda-forge
+                
+                echo "Installing VADR (this may take several minutes)..."
+                conda install -c bioconda vadr=1.6.4 -y
+                
+                # Verify installation
+                if command -v v-annotate.pl >/dev/null 2>&1; then
+                    VADR_VERSION=$(v-annotate.pl -h 2>&1 | grep -o 'VADR [0-9.]*' | head -n1 || echo "installed")
+                    echo "✓ VADR successfully installed: $VADR_VERSION"
+                    echo "✓ Available commands: v-annotate.pl, v-build.pl"
+                    
+                    # Update summary
+                    INSTALL_SUMMARY=$(echo -e "$INSTALL_SUMMARY" | sed 's/✗ VADR: NOT INSTALLED/✓ VADR: '"$VADR_VERSION"'/')
+                else
+                    echo "✗ VADR installation failed"
+                    echo "  You can try manual installation:"
+                    echo "  conda install -c bioconda vadr"
+                fi
+            else
+                echo "⚠ conda not available. VADR requires conda for installation."
+                echo "Please install conda/miniconda first, then run:"
+                echo "  conda install -c bioconda vadr"
+                return 1
+            fi
+        fi
+    fi
+    
+    # Check VADR model directories
+    if command -v v-annotate.pl >/dev/null 2>&1; then
+        echo ""
+        echo "VADR model information:"
+        
+        # Try to find VADR installation directory
+        VADR_DIR=$(dirname $(which v-annotate.pl))/../share/vadr 2>/dev/null || ""
+        
+        if [ -d "$VADR_DIR" ]; then
+            echo "  VADR directory: $VADR_DIR"
+            
+            # Check for viral model families
+            for family in flaviviridae coronaviridae; do
+                if [ -d "$VADR_DIR/vadr-models-$family" ]; then
+                    MODEL_COUNT=$(ls "$VADR_DIR/vadr-models-$family"/*.cm 2>/dev/null | wc -l)
+                    echo "  ✓ $family models: $MODEL_COUNT available"
+                else
+                    echo "  ○ $family models: not found"
+                fi
+            done
+        else
+            echo "  Model directory not found at expected location"
+            echo "  Models should be automatically included with bioconda installation"
+        fi
+    fi
 }
 
 # Function to create/update pipeline configuration
@@ -445,6 +530,7 @@ main() {
     check_install_java21
     check_install_snpeff  
     check_install_python_deps
+    check_install_vadr
     create_update_config
     display_summary
 }
