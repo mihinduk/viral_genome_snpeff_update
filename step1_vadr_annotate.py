@@ -64,11 +64,17 @@ def detect_virus_family(fasta_file, accession=None):
                 print(f"Detected {virus} - using {family} model")
                 return family
     
-    # If no match found, prompt user
+    # If no match found, exit with helpful message
     print(f"Could not auto-detect virus family from header: {header}")
-    print("Available models:")
+    print("")
+    print("ERROR: Virus family must be specified with --model")
+    print("")
+    print("Available virus families:")
     for key, config in VADR_MODELS.items():
-        print(f"  {key}: {', '.join(config['viruses'])}")
+        print(f"  --model {key}  # {', '.join(config['viruses'])}")
+    print("")
+    print("Example:")
+    print(f"  python3 {sys.argv[0]} {sys.argv[1]} --model flavi -o output_dir")
     
     return None
 
@@ -285,7 +291,6 @@ Examples:
         if not args.model and not args.skip_vadr:
             model_family = detect_virus_family(args.fasta)
             if not model_family:
-                print("Please specify virus family with --model")
                 sys.exit(1)
         else:
             model_family = args.model
