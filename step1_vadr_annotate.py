@@ -19,24 +19,24 @@ import re
 # VADR model configurations for different virus families
 VADR_MODELS = {
     'flavi': {
-        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models/vadr-models-flavi-1.7-1',
+        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models',
         'mkey': 'flavi',
         'viruses': ['WNV', 'DENV', 'ZIKV', 'YFV', 'JEV', 'TBEV', 'SLEV']
     },
-    'calici': {
-        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models/vadr-models-calici-1.5.1-1',
-        'mkey': 'calici',
-        'viruses': ['norovirus', 'sapovirus']
+    'dengue': {
+        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models',
+        'mkey': 'dengue',
+        'viruses': ['DENV', 'DENGUE']
     },
-    'corona': {
-        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models/vadr-models-corona-1.3-3',
-        'mkey': 'corona',
-        'viruses': ['SARS-CoV-2', 'MERS-CoV', 'SARS-CoV']
+    'sarscov2': {
+        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models',
+        'mkey': 'sarscov2',
+        'viruses': ['SARS-CoV-2', 'COVID', 'CORONAVIRUS']
     },
-    'mpox': {
-        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models/vadr-models-mpox-1.6.4-1',
-        'mkey': 'mpox',
-        'viruses': ['mpox', 'monkeypox']
+    'hcv': {
+        'mdir': '/ref/sahlab/software/envs/vadr_env/share/vadr-1.6.4/vadr-models',
+        'mkey': 'hcv',
+        'viruses': ['HCV', 'HEPATITIS C']
     }
 }
 
