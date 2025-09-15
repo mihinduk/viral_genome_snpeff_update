@@ -155,7 +155,7 @@ def parse_vadr_output(vadr_dir):
                 if not line or line.startswith('#'):
                     continue
                 
-                # Parse tab-delimited fields
+                # Parse whitespace-delimited fields
                 parts = line.split()
                 if len(parts) >= 24:
                     # Extract relevant fields
@@ -163,7 +163,7 @@ def parse_vadr_output(vadr_dir):
                     feature_type = parts[5]
                     feature_name = parts[6]
                     feature_length = parts[7]
-                    strand = parts[11]
+                    strand = parts[10]  # Strand is at index 10, not 11
                     seq_coords = parts[23]
                     
                     # Skip if not CDS or mat_peptide
