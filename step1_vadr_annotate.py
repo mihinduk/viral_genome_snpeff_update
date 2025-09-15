@@ -137,72 +137,87 @@ def parse_vadr_output(vadr_dir):
     vadr_path = Path(vadr_dir)
     
     # Parse the .ftr file for feature information
-    ftr_files = list(vadr_path.glob("*.vadr.pass.tbl"))
-    if not ftr_files:
-        ftr_files = list(vadr_path.glob("*.vadr.fail.tbl"))
+    ftr_files = list(vadr_path.glob("*.vadr.ftr"))
     
     if not ftr_files:
-        print("Warning: No .tbl files found in VADR output")
+        print("Warning: No .ftr files found in VADR output")
         return pd.DataFrame()
     
     annotations = []
     
     for ftr_file in ftr_files:
         print(f"Parsing {ftr_file}")
-        current_feature = {}
         
         with open(ftr_file, 'r') as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('>'):
+                # Skip header lines
+                if not line or line.startswith('#'):
                     continue
                 
-                parts = line.split('\t')
-                if len(parts) >= 3:
-                    # Parse coordinates and feature type
-                    coords = parts[0]
-                    feature_type = parts[2] if len(parts) > 2 else ''
+                # Parse tab-delimited fields
+                parts = line.split()
+                if len(parts) >= 24:
+                    # Extract relevant fields
+                    seq_name = parts[1]
+                    feature_type = parts[5]
+                    feature_name = parts[6]
+                    feature_length = parts[7]
+                    strand = parts[11]
+                    seq_coords = parts[23]
                     
                     # Skip if not CDS or mat_peptide
-                    if feature_type not in ['CDS', 'mat_peptide']:
+                    if feature_type not in ['CDS', 'mat_peptide', 'gene']:
                         continue
                     
-                    # Parse coordinates
-                    if '..' in coords:
-                        start, end = coords.split('..')
-                        # Handle complement annotations
-                        if coords.startswith('complement('):
-                            coords_clean = coords.replace('complement(', '').replace(')', '')
-                            start, end = coords_clean.split('..')
-                            strand = '-'
-                        else:
-                            strand = '+'
-                        
-                        # Remove < or > symbols
-                        start = start.replace('<', '').replace('>', '')
-                        end = end.replace('<', '').replace('>', '')
-                        
-                        current_feature = {
-                            'start': int(start),
-                            'end': int(end),
-                            'strand': strand,
-                            'type': feature_type
-                        }
-                
-                # Look for qualifiers
-                if current_feature and '\t\t\t' in line:
-                    qualifier_line = line.strip()
-                    if 'product' in qualifier_line:
-                        product = qualifier_line.split('product')[1].strip()
-                        current_feature['product'] = product
-                    elif 'gene' in qualifier_line:
-                        gene = qualifier_line.split('gene')[1].strip()
-                        current_feature['gene'] = gene
+                    # Parse coordinates (format: start..end:strand or multiple segments)
+                    # Handle single and multi-segment features
+                    coord_parts = seq_coords.split(',')
+                    first_segment = coord_parts[0]
+                    last_segment = coord_parts[-1]
                     
-                    # If we have enough info, save the feature
-                    if 'product' in current_feature:
-                        annotations.append(current_feature.copy())
-                        current_feature = {}
+                    # Extract start from first segment
+                    start_str = first_segment.split('..')[0]
+                    # Extract end from last segment
+                    end_str = last_segment.split('..')[1].replace(':+', '').replace(':-', '')
+                    
+                    try:
+                        start = int(start_str)
+                        end = int(end_str)
+                        
+                        # Clean up feature name (replace underscores with spaces)
+                        product = feature_name.replace('_', ' ')
+                        
+                        # Create gene name from product
+                        gene = ''
+                        if 'NS' in product.upper():
+                            # Extract NS protein names
+                            import re
+                            ns_match = re.search(r'NS\d+[A-Z]?', product.upper())
+                            if ns_match:
+                                gene = ns_match.group()
+                        elif 'capsid' in product.lower():
+                            gene = 'C'
+                        elif 'envelope' in product.lower():
+                            gene = 'E'
+                        elif 'membrane' in product.lower() and 'precursor' not in product.lower():
+                            gene = 'M'
+                        elif 'prM' in product or 'precursor' in product.lower():
+                            gene = 'prM'
+                        elif feature_type == 'gene':
+                            gene = product
+                        
+                        annotations.append({
+                            'start': start,
+                            'end': end,
+                            'strand': strand,
+                            'type': feature_type,
+                            'product': product,
+                            'gene': gene
+                        })
+                    except (ValueError, IndexError) as e:
+                        print(f"Skipping line due to parsing error: {e}")
+                        continue
     
     if annotations:
         df = pd.DataFrame(annotations)
