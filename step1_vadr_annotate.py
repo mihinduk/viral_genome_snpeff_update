@@ -96,13 +96,15 @@ def run_vadr(fasta_file, output_dir, model_family, force=False):
     
     model_config = VADR_MODELS[model_family]
     
-    # Build VADR command
+    # Build VADR command with memory-friendly options
     cmd = [
         '/ref/sahlab/software/micromamba', 'run', '-p', '/ref/sahlab/software/envs/vadr_env',
         'v-annotate.pl',
         str(fasta_file),
         '--mdir', model_config['mdir'],
         '--mkey', model_config['mkey'],
+        '--mxsize', '2000',  # Reduce max DP matrix size to conserve memory
+        '--cpu', '1',        # Use single CPU to reduce memory usage
         str(output_dir)
     ]
     
