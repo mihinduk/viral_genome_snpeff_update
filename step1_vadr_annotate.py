@@ -103,7 +103,8 @@ def run_vadr(fasta_file, output_dir, model_family, force=False):
         str(fasta_file),
         '--mdir', model_config['mdir'],
         '--mkey', model_config['mkey'],
-        '--mxsize', '2000',  # Reduce max DP matrix size to conserve memory
+        '--split',           # Split sequences for memory-efficient processing
+        '--cpu', '1',        # Use single CPU (compatible with --split)
         str(output_dir)
     ]
     
