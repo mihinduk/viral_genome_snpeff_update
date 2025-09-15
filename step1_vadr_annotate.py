@@ -103,8 +103,8 @@ def run_vadr(fasta_file, output_dir, model_family, force=False):
         str(fasta_file),
         '--mdir', model_config['mdir'],
         '--mkey', model_config['mkey'],
-        '--split',           # Split sequences for memory-efficient processing
-        '--cpu', '1',        # Use single CPU (compatible with --split)
+        '--glsearch',        # Use FASTA for alignment (less memory than Infernal)
+        '--cpu', '1',        # Use single CPU (compatible with --glsearch)
         str(output_dir)
     ]
     
