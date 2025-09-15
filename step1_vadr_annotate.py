@@ -270,9 +270,8 @@ def create_annotation_tsv(vadr_output, output_file, fasta_file=None):
                 # Extract accession from header (first word after >)
                 seqid = header[1:].split()[0]
     
-    # Convert strand from +/- to 1/-1
-    strand_map = {'+': '1', '-': '-1'}
-    vadr_output['strand_numeric'] = vadr_output['strand'].map(strand_map).fillna('1')
+    # Keep strand as +/- (no conversion needed)
+    # VADR already provides correct +/- format
     
     # Convert mat_peptide to CDS for snpEff compatibility
     type_map = {'mat_peptide': 'CDS', 'CDS': 'CDS', 'gene': 'gene'}
@@ -292,7 +291,7 @@ def create_annotation_tsv(vadr_output, output_file, fasta_file=None):
         'type': vadr_output['type_mapped'],
         'start': vadr_output['start'],
         'end': vadr_output['end'],
-        'strand': vadr_output['strand_numeric'],
+        'strand': vadr_output['strand'],
         'gene_name': vadr_output.get('gene', ''),  # Editable gene name
         'product': vadr_output.get('product', ''),  # Original product
         'ID': vadr_output['feature_id'],
