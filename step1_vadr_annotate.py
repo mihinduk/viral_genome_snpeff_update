@@ -192,9 +192,22 @@ def parse_vadr_output(vadr_dir):
                         gene = ''
                         notes = ''
                         
-                        # Check for frameshift indicators
-                        if 'truncated' in product.lower() or 'WARF' in product:
+                        # Check for frameshift indicators based on coordinate structure
+                        # Multi-segment features indicate frameshifts
+                        if len(coord_parts) > 1:
                             notes = 'frameshift_variant'
+                            
+                            # Extract frameshift positions from segment boundaries
+                            frameshift_positions = []
+                            for i in range(len(coord_parts) - 1):
+                                seg1_end = coord_parts[i].split('..')[1].replace(':+', '').replace(':-', '')
+                                seg2_start = coord_parts[i + 1].split('..')[0]
+                                
+                                # Frameshift position is at the junction
+                                frameshift_positions.append(seg1_end)
+                            
+                            if frameshift_positions:
+                                notes = f'frameshift_variant_pos_{",".join(frameshift_positions)}'
                         
                         if 'NS' in product.upper():
                             # Extract NS protein names
@@ -271,27 +284,26 @@ def create_annotation_tsv(vadr_output, output_file, fasta_file=None):
         axis=1
     )
     
-    # Prepare columns for output - matching format from step1_parse_viral_genome.py
+    # Prepare columns for output - matching format from step1_parse_viral_genome.py exactly
     output_df = pd.DataFrame({
+        'action': 'KEEP',  # Match reference format
         'seqid': seqid,  # Use actual sequence ID
         'source': 'VADR',
         'type': vadr_output['type_mapped'],
         'start': vadr_output['start'],
         'end': vadr_output['end'],
-        'score': '.',
         'strand': vadr_output['strand_numeric'],
-        'phase': '0',  # Default phase for CDS
-        'attributes': vadr_output.apply(
-            lambda row: f"ID={row['feature_id']};Name={row.get('gene', row['feature_id'])};product={row.get('product', '')}",
-            axis=1
-        ),
-        'ID': vadr_output['feature_id'],
         'gene_name': vadr_output.get('gene', ''),  # Editable gene name
         'product': vadr_output.get('product', ''),  # Original product
+        'ID': vadr_output['feature_id'],
+        'gene': vadr_output.get('gene', ''),  # Same as gene_name for compatibility
         'protein_id': '',  # Empty, can be filled if needed
-        'action': 'add',  # Default action for new annotations
         'notes': vadr_output.get('notes', '')  # Include frameshift notes
     })
+    
+    # Reorder columns to match reference format exactly
+    output_df = output_df[['action', 'seqid', 'source', 'type', 'start', 'end', 'strand', 
+                          'gene_name', 'product', 'ID', 'gene', 'protein_id', 'notes']]
     
     # Save to TSV
     output_df.to_csv(output_file, sep='\t', index=False)
