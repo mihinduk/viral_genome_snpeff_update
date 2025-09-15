@@ -190,6 +190,12 @@ def parse_vadr_output(vadr_dir):
                         
                         # Create gene name from product
                         gene = ''
+                        notes = ''
+                        
+                        # Check for frameshift indicators
+                        if 'truncated' in product.lower() or 'WARF' in product:
+                            notes = 'frameshift_variant'
+                        
                         if 'NS' in product.upper():
                             # Extract NS protein names
                             import re
@@ -213,7 +219,8 @@ def parse_vadr_output(vadr_dir):
                             'strand': strand,
                             'type': feature_type,
                             'product': product,
-                            'gene': gene
+                            'gene': gene,
+                            'notes': notes
                         })
                     except (ValueError, IndexError) as e:
                         print(f"Skipping line due to parsing error: {e}")
@@ -227,7 +234,7 @@ def parse_vadr_output(vadr_dir):
     else:
         return pd.DataFrame()
 
-def create_annotation_tsv(vadr_output, output_file):
+def create_annotation_tsv(vadr_output, output_file, fasta_file=None):
     """
     Create TSV file from VADR annotations for manual review.
     Format compatible with step2_add_to_snpeff.py
@@ -235,28 +242,55 @@ def create_annotation_tsv(vadr_output, output_file):
     Args:
         vadr_output: DataFrame with VADR annotations
         output_file: Path to output TSV file
+        fasta_file: Path to input fasta file (to extract sequence ID)
     """
     if vadr_output.empty:
         print("No annotations to write")
         return
     
+    # Get sequence ID from fasta file if provided
+    seqid = 'genome'
+    if fasta_file and os.path.exists(fasta_file):
+        with open(fasta_file, 'r') as f:
+            header = f.readline().strip()
+            if header.startswith('>'):
+                # Extract accession from header (first word after >)
+                seqid = header[1:].split()[0]
+    
+    # Convert strand from +/- to 1/-1
+    strand_map = {'+': '1', '-': '-1'}
+    vadr_output['strand_numeric'] = vadr_output['strand'].map(strand_map).fillna('1')
+    
+    # Convert mat_peptide to CDS for snpEff compatibility
+    type_map = {'mat_peptide': 'CDS', 'CDS': 'CDS', 'gene': 'gene'}
+    vadr_output['type_mapped'] = vadr_output['type'].map(type_map).fillna('CDS')
+    
+    # Generate unique IDs for each feature
+    vadr_output['feature_id'] = vadr_output.apply(
+        lambda row: f"{row.get('gene', 'feature')}_{row.name}" if row.get('gene') else f"feature_{row.name}",
+        axis=1
+    )
+    
     # Prepare columns for output - matching format from step1_parse_viral_genome.py
     output_df = pd.DataFrame({
-        'seqid': 'genome',  # Default sequence ID
+        'seqid': seqid,  # Use actual sequence ID
         'source': 'VADR',
-        'type': vadr_output['type'],
+        'type': vadr_output['type_mapped'],
         'start': vadr_output['start'],
         'end': vadr_output['end'],
         'score': '.',
-        'strand': vadr_output['strand'],
+        'strand': vadr_output['strand_numeric'],
         'phase': '0',  # Default phase for CDS
         'attributes': vadr_output.apply(
-            lambda row: f"ID={row.get('gene', 'gene')};Name={row.get('gene', row.get('product', 'unknown'))};product={row.get('product', '')}",
+            lambda row: f"ID={row['feature_id']};Name={row.get('gene', row['feature_id'])};product={row.get('product', '')}",
             axis=1
         ),
+        'ID': vadr_output['feature_id'],
         'gene_name': vadr_output.get('gene', ''),  # Editable gene name
         'product': vadr_output.get('product', ''),  # Original product
-        'notes': ''  # For manual notes
+        'protein_id': '',  # Empty, can be filled if needed
+        'action': 'add',  # Default action for new annotations
+        'notes': vadr_output.get('notes', '')  # Include frameshift notes
     })
     
     # Save to TSV
@@ -330,7 +364,7 @@ Examples:
         
         # Create TSV if requested
         if args.tsv:
-            create_annotation_tsv(annotations, args.tsv)
+            create_annotation_tsv(annotations, args.tsv, args.fasta)
         
         print(f"\nVADR annotation complete. Output in: {vadr_dir}")
         
